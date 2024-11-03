@@ -1,0 +1,1 @@
+This is a Python code that generates the app 'Graph Maker' suitable for all operative systems. This app provides a user interface where the first step is the file uploading. Currently, the app reads CSV file containing arbitrary number of signals. The user selects signals to be plotted and manually set the range of the resulting plots. 
