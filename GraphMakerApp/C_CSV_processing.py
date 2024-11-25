@@ -7,6 +7,10 @@
 # @title Graphic Maker
 import pandas as pd
 
+from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+
 import matplotlib
 print(matplotlib.get_backend())  # Confirm backend
 matplotlib.use('TkAgg')  # Change to an appropriate one for your OS
@@ -35,6 +39,7 @@ y_checkboxes = []
 plot_checkboxes = []
 subplot_checkboxes = []
 float_entries = []
+title = None
 
 # file upload button
 def upload_file():
@@ -69,6 +74,14 @@ def generate_widgets():
 
         # Get the columns from the dataframe (except the first column)
         columns = df.columns.tolist()
+        
+        # Title
+        global title
+        tk.Label(app, text='Graph Title:').grid(row=1, column=0, padx=5, pady=5, sticky='nsew')
+        entry_t = tk.Entry(app, width=8)
+        entry_t.grid(row=1, column=1, padx=5, pady=5, sticky='nsew')
+        entry_t.insert(0, 'Title')
+        title = entry_t
 
         # Header row for the grid
         headers = ['Signal', 'Select Signal', 'Second Y-Axis', 'Plot Signal', 'Subplot Signal']
@@ -126,17 +139,18 @@ def generate_widgets():
         # Define a validation command that points to the validate_float function
         vcmd = (app.register(validate_float), '%P')  # '%P' is the value after the change 
         
-        fields = [  
+        numeric_fields = [  
             ("Time Min (s):", time_min, "Time Max (s):", time_max),
-            ("Y1 Min:", 0, "Y1 Max:", 0),
-            ("Y2 Min:", 0, "Y2 Max:", 0),
+            ("Y-axis Min:", 0, "Y-axis Max:", 0),
+            ("Right Y-axis Min:", 0, "Right Y-axis Max:", 0),
             ("X Divisions:", 10, "Y Divisions:", 10),
-            ("Y1-axis:", "Label1", "Y2-axis:", "Label2")
         ]
         
+        label_fields = [
+            ("Y-axis Label:", "Label1", "Right Y-axis Label:", "Label2")
+        ]
         
-        # define widgets for graph setup
-        for i, (label1, val1, label2, val2) in enumerate(fields):
+        for i, (label1, val1, label2, val2) in enumerate(numeric_fields):
             tk.Label(app, text=label1).grid(row=num_signals + 6 + i, column=2, padx=5, pady=5, sticky='nsew')
             entry1 = tk.Entry(app, validate="key", validatecommand=vcmd, width=12)
             entry1.grid(row=num_signals + 6 + i, column=3, padx=5, pady=5, sticky='nsew')
@@ -148,10 +162,24 @@ def generate_widgets():
             entry2.grid(row=num_signals + 6 + i, column=5, padx=5, pady=5, sticky='nsew')
             entry2.insert(0, val2)
             float_entries.append(entry2)
+            
+        for i, (label1, val1, label2, val2) in enumerate(label_fields):
+            row_index = num_signals + 6 + len(numeric_fields) + i  # Offset by numeric fields count
+            tk.Label(app, text=label1).grid(row=row_index, column=2, padx=5, pady=5, sticky='nsew')
+            entry1 = tk.Entry(app, width=12)
+            entry1.grid(row=row_index, column=3, padx=5, pady=5, sticky='nsew')
+            entry1.insert(0, val1)
+            float_entries.append(entry1)
 
+            tk.Label(app, text=label2).grid(row=row_index, column=4, padx=5, pady=5, sticky='nsew')
+            entry2 = tk.Entry(app, width=12)
+            entry2.grid(row=row_index, column=5, padx=5, pady=5, sticky='nsew')
+            entry2.insert(0, val2)
+            float_entries.append(entry2)
+        
         # Add a button to trigger plotting after the fields
         plot_button = tk.Button(app, text="Plot Signals", command=plot_signals, font=("Arial", 12))
-        plot_button.grid(row=num_signals + 6 + len(fields), column=2, columnspan=4, pady=20, sticky='nsew')
+        plot_button.grid(row=num_signals + 6 + len(numeric_fields) + len(label_fields), column=2, columnspan=4, pady=20, sticky='nsew')
         
         
     else:
@@ -192,6 +220,7 @@ def validate_ymax_entries():
 
 def generate_unique_colors(num_colors):
     """Function to define unique colors for plotting"""
+    random.seed(5)
     colors = set()
     while len(colors) < num_colors:
         # Generate a random color in hexadecimal format
@@ -202,7 +231,7 @@ def generate_unique_colors(num_colors):
 unique_colors = generate_unique_colors(num_signals)
 
 def plot_signals():
-    """Plot the graph based on selected signals and settings."""
+    """Plot the graph with combined plots and subplots in a single matplotlib window."""
     if df is None:
         messagebox.showerror("Error", "No data available to plot. Please upload a file.")
         return
@@ -217,66 +246,120 @@ def plot_signals():
     time_col = df.columns[0]  # Assuming the first column is the time column
     df_filtered = df[(df[time_col] >= t_min) & (df[time_col] <= t_max)]
     
-    # Debug filtered data
-    print(f"Filtered DataFrame shape: {df_filtered.shape}")
-    print(f"Available columns: {df_filtered.columns.tolist()}")
+    # Separate signals into combined plot and subplot groups
+    combined_signals = []
+    subplot_signals = []
+
+    for i, dropdown in enumerate(y_dropdowns):
+        signal_name = dropdown.get()
+        if plot_checkboxes[i].var.get() and signal_name in df_filtered.columns:
+            if subplot_checkboxes[i].var.get():  # Check if 'Subplot Signal' is checked
+                subplot_signals.append((signal_name, unique_colors[i]))
+            else:
+                combined_signals.append((signal_name, unique_colors[i]))
     
-    # Initialize plot with primary and secondary y-axes
-    fig, ax = plt.subplots(figsize=(10, 6))
-    secondary_ax = None  
-
-    # Track if any signal was successfully plotted
-    any_signal_plotted = False
-
-    # Debug signal selection
-    for i, dropdown in enumerate(y_dropdowns):
-        print(f"Signal {i+1}: {dropdown.get()} (Plot: {plot_checkboxes[i].var.get()}, Second Y: {y_checkboxes[i].var.get()})")
-
-
-    for i, dropdown in enumerate(y_dropdowns):
-        # Check if a signal is selected for plotting
-        if plot_checkboxes[i].var.get():
-            signal_name = dropdown.get()
-            
-            # Validate that the selected signal exists in the DataFrame
-            if signal_name in df_filtered.columns:
-                color = unique_colors[i]
-                any_signal_plotted = True  # At least one valid signal will be plotted
-                print(f"Plotting {signal_name} with color {color}")
-
-
-                # Check if it should be plotted on the secondary y-axis
-                if y_checkboxes[i].var.get():
-                    if secondary_ax is None:
-                        secondary_ax = ax.twinx()
-                    #secondary_ax.plot(df_filtered[time_col], df_filtered[signal_name], color=color, label=signal_name)
-                    secondary_ax.scatter(df_filtered[time_col], df_filtered[signal_name], color=color, label=signal_name)
-                    secondary_ax.set_ylabel(float_entries[9].get())  # Y2-axis label
-                else:
-                    print(f"Plotting {signal_name} on primary Y-axis.")
-                    #ax.plot(df_filtered[time_col], df_filtered[signal_name], color=color, label=signal_name)
-                    ax.scatter(df_filtered[time_col], df_filtered[signal_name], color=color, label=signal_name)
-
-                    
-    # Finalize and display the plot
-    if any_signal_plotted:
-        ax.set_xlabel('Time (s)')
-        ax.set_ylabel(float_entries[8].get())  # Y1-axis label
-        ax.legend(loc='upper left')
-
-        if secondary_ax:
-            secondary_ax.legend(loc='upper right')
-            
-        print(f"Figure has {len(fig.axes)} axes.")
-        for i, ax in enumerate(fig.axes, start=1):
-            print(f"Axes {i}: {len(ax.lines)} line(s) plotted.")
-        
-        plt.show(block=True)
-    else:
+    # Ensure at least one signal is selected for plotting
+    if not combined_signals and not subplot_signals:
         messagebox.showwarning("Warning", "No valid signal selected for plotting. Please check your selections.")
+        return
     
+    
+    # Create a new tkinter window for the plots
+    plot_window = tk.Toplevel()
+    plot_window.title("Signals")
+    plot_window.geometry("1200x800")
+    plot_window.resizable(True, True)
 
+    # Create a canvas for the figure and add scrollbars
+    canvas_frame = tk.Frame(plot_window)
+    canvas_frame.pack(fill=tk.BOTH, expand=True)
 
+    canvas = tk.Canvas(canvas_frame)
+    scrollbar_y = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=canvas.yview)
+    scrollbar_x = ttk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL, command=canvas.xview)
+
+    scrollable_frame = ttk.Frame(canvas)
+    scrollable_frame.bind(
+        "<Configure>",
+        lambda e: canvas.configure(
+            scrollregion=canvas.bbox("all")
+        )
+    )
+
+    canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+
+    scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+    scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
+    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    # Create the Matplotlib figure
+    num_plots = 1 + len(subplot_signals)  # Combined plot + individual subplots
+    fig = Figure(figsize=(12, 5 * num_plots), tight_layout=True)
+    axes = fig.subplots(num_plots, 1, sharex=True)
+    
+    # Add mouse wheel scrolling support for the canvas
+    def _on_mouse_wheel(event):
+        """Scroll the canvas with the mouse wheel."""
+        if event.delta:  # Handles macOS and Windows
+            delta = event.delta
+            if delta > 0:  # Positive scroll
+                canvas.yview_scroll(-1, "units")
+            elif delta < 0:  # Negative scroll
+                canvas.yview_scroll(1, "units")
+        else:  # Handles Linux (where delta is absent)
+            delta = -1 if event.num == 4 else 1
+            canvas.yview_scroll(delta, "units")
+
+    # Bind the mouse wheel events to the canvas
+    canvas.bind_all("<MouseWheel>", _on_mouse_wheel)  # macOS and Windows
+    canvas.bind_all("<Button-4>", lambda event: canvas.yview_scroll(-1, "units"))  # Scroll up (Linux)
+    canvas.bind_all("<Button-5>", lambda event: canvas.yview_scroll(1, "units"))   # Scroll down (Linux)
+
+    if num_plots == 1:
+        axes = [axes]
+
+    # Plot combined signals on the first axes
+    if combined_signals:
+        ax_combined = axes[0]
+        for signal_name, color in combined_signals:
+            ax_combined.scatter(df_filtered[time_col], df_filtered[signal_name], color=color, label=signal_name)
+        graph_title = title.get()
+        ax_combined.set_title(graph_title)
+        ax_combined.set_xlabel("Time (s)")
+        ax_combined.set_ylabel(float_entries[8].get())  # Y-axis label for combined plot
+        ax_combined.legend(loc='upper left', bbox_to_anchor=(1.02, 1))
+        ax_combined.grid(True, which='both', linestyle='--', color='gray', alpha=0.7)
+        ax_combined.tick_params(axis='x', which='both', labelbottom=True)  # Ensure x-axis numbers are displayed
+
+    # Plot each signal in its own subplot
+    for ax, (signal_name, color) in zip(axes[1:], subplot_signals):
+        ax.scatter(df_filtered[time_col], df_filtered[signal_name], color=color, label=signal_name)
+        ax.set_title(f"{signal_name}")
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel(signal_name)
+        ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1))
+        ax.grid(True, which='both', linestyle='--', color='gray', alpha=0.7)
+        ax.tick_params(axis='x', which='both', labelbottom=True)  # Ensure x-axis numbers are displayed
+
+    # Set x-label on the last subplot
+    #axes[-1].set_xlabel("Time (s)")
+
+    # Add the figure to the Tkinter canvas
+    canvas_widget = FigureCanvasTkAgg(fig, master=scrollable_frame)
+    canvas_widget.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+    canvas_widget.draw()
+    
+    # Add the Matplotlib navigation toolbar
+    toolbar_frame = tk.Frame(plot_window)
+    toolbar_frame.pack(side=tk.BOTTOM, fill=tk.X)
+    toolbar = NavigationToolbar2Tk(canvas_widget, toolbar_frame)
+    toolbar.update()
+
+    plot_window.mainloop()
+    
+    
+    
 #//////////////////////////////////////////////////////////////////////////////////////////////////
 # Building the app 'Graph Maker'
 
@@ -296,208 +379,56 @@ spacer.grid(row=1, column=0, columnspan=5, pady=10)  # Spacer in row 1 for extra
 # Run the main application loop
 app.mainloop()
 
+"""
+# Determine the total number of subplots
+num_plots = 1 + len(subplot_signals)  # 1 for the combined plot, plus one for each subplot
+#fig, axes = plt.subplots(num_plots, 1, figsize=(14, 5 * num_plots), sharex=True)
+fig = Figure(figsize=(14, 6 * num_plots), dpi=100)
 
-#//////////////////////////////////////////////////////////////////////////////////////////////////
-#//////////////////////////////////////////////////////////////////////////////////////////////////////
+# Create subplots
+axes = fig.subplots(num_plots, 1, sharex=True)
 
-
-# # Función para graficar
-# def plot_signals(y_columns, second_axes, plot_signals_list, subplot_signals_list, title, y1_label, y2_label, time_min, time_max):
-
-
-
-    # # Contar cuántas señales se deben graficar como subplots
-    # num_subplots = sum(subplot_signals_list)
-
-    # # Definir la figura, con subplots si es necesario
-    # if num_subplots > 0:
-    #     fig, axs = plt.subplots(nrows=num_subplots + 1, ncols=1, figsize=(12, 6 + 4*num_subplots))  # +1 para el gráfico principal
-    # else:
-    #     fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(12, 6))
-
-    # # Si solo hay un subplot, convertir axs en una lista para consistencia
-    # if num_subplots == 0:
-    #     axs = [axs]
-    # elif num_subplots == 1:
-    #     axs = [axs[0], axs[1]]  # Asegurarse de tener una lista para manejar múltiples subplots
-
-#//////////////////////////////////////////////////////////////////////////////////////////////////////
-
-    # ax1 = axs[0]  # Primer gráfico será el principal
-    # ax2 = None    # Almacenar el eje secundario si es necesario
-
-    # # Listas para guardar las etiquetas de leyenda
-    # y1_labels = []
-    # y2_labels = []
-    # handles1, handles2 = [], []
-    # subplot_idx = 1
-
-#//////////////////////////////////////////////////////////////////////////////////////////////////////
-
-    # Graficar cada señal seleccionada
-    # for i, (y_col, second_axis, plot_signal, subplot_signal) in enumerate(zip(y_columns, second_axes, plot_signals_list, subplot_signals_list)):
-    #     if plot_signal:  # Solo graficar si el checkbox de 'Plot Signal' está activado
-    #         if subplot_signal:  # Graficar en un subplot
-    #             ax_subplot = axs[subplot_idx]  # Obtener el subplot correspondiente
-    #             ax_subplot.scatter(df[x_column], df[y_col], color=unique_colors[i], alpha=0.7, label=y_col)
-    #             ax_subplot.set_ylabel(y_col)
-    #             ax_subplot.grid(True)
-
-    #             # Aplicar divisiones personalizadas para el eje X en cada subplot
-    #             if x_div_box.value is not None:
-    #                 ax_subplot.xaxis.set_major_locator(plt.MaxNLocator(x_div_box.value))  # Aplicar divisiones en el eje X del subplot
-
-    #             # **Aplicar los mismos límites de tiempo que en el gráfico principal**
-    #             ax_subplot.set_xlim([time_min, time_max])
-
-    #             subplot_idx += 1
-    #         else:
-    #             if second_axis:
-    #                 if ax2 is None:  # Si no se ha creado el segundo eje, se crea
-    #                     ax2 = ax1.twinx()
-
-    #                 # Graficar en el segundo eje Y
-    #                 sc = ax2.scatter(df[x_column], df[y_col], color=unique_colors[i], alpha=0.7, label=y_col)
-    #                 y2_labels.append(y_col)  # Agregar a la lista de leyendas para Y2
-    #                 handles2.append(sc)  # Almacenar el handle del gráfico
-    #                 ax2.set_ylabel(y2_label)
-    #                 #ax2.grid(True)  # Asegurarse de que el grid de Y2 esté activado
-    #             else:
-    #                 # Graficar en el eje Y primario
-    #                 sc = ax1.scatter(df[x_column], df[y_col], color=unique_colors[i], alpha=0.7, label=y_col)
-    #                 y1_labels.append(y_col)  # Agregar a la lista de leyendas para Y1
-    #                 handles1.append(sc)  # Almacenar el handle del gráfico
-    #                 ax1.set_ylabel(y1_label)
-    #                 ax1.grid(True)  # Asegurarse de que el grid de Y2 esté activado
-
-#//////////////////////////////////////////////////////////////////////////////////////////////////////
-
-    # ax1.set_xlabel(x_column)
-    # ax1.set_title(title)
-    # ax1.set_xlim([time_min, time_max])
-
-#//////////////////////////////////////////////////////////////////////////////////////////////////////
-
-    # # Obtener las posiciones de los ejes en la figura
-    # pos1 = ax1.get_position()  # Coordenadas del eje 1
-
-    # # Verificación de si existe el segundo eje (ax2)
-    # if ax2 is not None:
-    #     pos2 = ax2.get_position()  # Coordenadas del eje 2, si existe
-
-    # # Leyenda fuera del gráfico para el eje 1 (izquierda)
-    # if y1_labels:
-    #     ax1.legend(handles1, y1_labels, loc='center',
-    #               bbox_to_anchor=(pos1.x0 - 0.4, pos1.y0))  # A la izquierda del eje y1
-
-    # # Leyenda fuera del gráfico para el eje 2 (derecha), si ax2 existe
-    # if y2_labels and ax2 is not None:
-    #     ax2.legend(handles2, y2_labels, loc='center',
-    #               bbox_to_anchor=(pos2.x1 + 0.4, pos2.y0))  # A la derecha del eje y2
-
-#//////////////////////////////////////////////////////////////////////////////////////////////////////
-
-    # # Aplicar divisiones personalizadas para el eje X
-    # if x_div_box.value is not None:
-    #     ax1.xaxis.set_major_locator(plt.MaxNLocator(x_div_box.value))  # Aplicar divisiones en el eje X
-
-    # # Aplicar límites y divisiones personalizadas para el eje Y1
-    # if y1_min_box.value is not None and y1_max_box.value is not None:
-    #     if y1_min_box.value != y1_max_box.value:  # Evitar límites idénticos en Y1
-    #         ax1.set_ylim([y1_min_box.value, y1_max_box.value])
-    #     else:
-    #         print("Error: 'Y1 Min' y 'Y1 Max' no pueden ser iguales.")
-
-    # # Aplicar divisiones personalizadas para ambos ejes (major ticks)
-    # if y_div_box.value is not None:
-    #     ax1.yaxis.set_major_locator(plt.MaxNLocator(y_div_box.value))  # Aplicar divisiones principales en Y1
-    #     if ax2:
-    #         ax2.yaxis.set_major_locator(plt.MaxNLocator(y_div_box.value))  # Aplicar divisiones principales en Y2
-
-    # # Aplicar límites personalizados para el eje Y2 (si existe)
-    # if ax2:
-    #     if y2_min_box.value is not None and y2_max_box.value is not None:
-    #         if y2_min_box.value != y2_max_box.value:  # Evitar límites idénticos en Y2
-    #             ax2.set_ylim([y2_min_box.value, y2_max_box.value])
-    #         else:
-    #             print("Error: 'Y2 Min' y 'Y2 Max' no pueden ser iguales.")
-
-#//////////////////////////////////////////////////////////////////////////////////////////////////////
-
-#    plt.show()
-
-#//////////////////////////////////////////////////////////////////////////////////////////////////////
-
-# # Crear un botón para graficar
-# button = widgets.Button(description='Plot')
-# output = widgets.Output()
-
-#//////////////////////////////////////////////////////////////////////////////////////////////////////
-
-# def on_button_clicked(b):
-#     with output:
-#         output.clear_output()  # Limpiar el área de salida antes de graficar
-
-#         # Obtener las señales seleccionadas y si deben ir al segundo eje Y
-#         y_columns = [dropdown.value for dropdown in y_dropdowns]
-#         second_axes = [checkbox.value for checkbox in y_checkboxes]
-#         plot_signals_list = [checkbox.value for checkbox in plot_checkboxes]
-#         subplot_signals_list = [checkbox.value for checkbox in subplot_checkboxes]
-
-#         # Obtener los textos de los text boxes
-#         title = title_box.value
-#         y1_label = y1_label_box.value
-#         y2_label = y2_label_box.value
-
-#         # Obtener los valores de los TextBoxes de tiempo
-#         time_min = time_min_box.value
-#         time_max = time_max_box.value
-
-#         # Llamar a la función para graficar
-#         plot_signals(y_columns, second_axes, plot_signals_list, subplot_signals_list, title, y1_label, y2_label, time_min, time_max)
-
-# button.on_click(on_button_clicked)
-
-#//////////////////////////////////////////////////////////////////////////////////////////////////////
-
-# # Alinear los dropdowns, checkboxes y subplots dinámicamente usando HBox
-# # Cada fila contiene un dropdown, sus respectivos checkboxes, y el checkbox para subplot
-# boxes =  [widgets.HBox([y_dropdowns[i], y_checkboxes[i], subplot_checkboxes[i], plot_checkboxes[i]]) for i in range(num_signals)]
-# y1_controls = widgets.HBox([y1_label_box, y1_min_box, y1_max_box, y_div_box])  # Fila para Y1: Axis, Min, Max
-# y2_controls = widgets.HBox([y2_label_box, y2_min_box, y2_max_box])  # Fila para Y2: Axis, Min, Max
-# time_controls = widgets.HBox([widgets.Label(layout=widgets.Layout(width='300px')),time_min_box, time_max_box, x_div_box])  # Fila para time: Min, Max
-
-#//////////////////////////////////////////////////////////////////////////////////////////////////////
-
-# # Mostrar los widgets y el botón
-# controls = widgets.VBox([*boxes, y1_controls, y2_controls, time_controls])
-# display(title_box, controls, button, output)
+# Ensure axes is always iterable
+if num_plots == 1:
+    axes = [axes]
 
 
-# # Obtener el nombre del archivo cargado
-# filename = next(iter(uploaded))
+# Plot combined signals on the first axes
+if combined_signals:
+    ax_combined = axes[0]
+    for signal_name, color in combined_signals:
+        print(f"Plotting {signal_name} in combined plot with color {color}")
+        ax_combined.scatter(df_filtered[time_col], df_filtered[signal_name], color=color, label=signal_name)
+    graph_title = title.get()
+    ax_combined.set_title(graph_title)
+    ax_combined.set_xlabel('Time (s)')
+    ax_combined.set_ylabel(float_entries[8].get())  # Y-axis label for combined plot
+    ax_combined.grid(True, which='both', linestyle='--', color='gray', alpha=0.7)  # Add grid to combined plot
+    ax_combined.legend(loc='upper left', bbox_to_anchor=(1.02, 1))
+    ax_combined.tick_params(axis='x', which='both', labelbottom=True)  # Ensure x-axis numbers are displayed
+else:
+    print("No signals selected for the combined plot.")
 
-# # Comprobar si el archivo es un archivo ZIP
-# if filename.endswith('.zip'):
-#     with zipfile.ZipFile(io.BytesIO(uploaded[filename]), 'r') as zip_ref:
-#         # Descomprimir el archivo ZIP
-#         zip_ref.extractall('/content/')  # Extrae todos los archivos a la carpeta /content/
-#         # Obtener el primer archivo CSV dentro del ZIP
-#         csv_files = [f for f in zip_ref.namelist() if f.endswith('.csv')]
-#         if len(csv_files) > 0:
-#             filename = csv_files[0]  # Usar el primer archivo CSV encontrado
-#         else:
-#             print("No se encontró ningún archivo CSV en el ZIP.")
-# else:
-#     # Si no es un archivo ZIP, asumir que es un archivo CSV
-#     pass
+# Plot each signal in its own subplot
+for ax, (signal_name, color) in zip(axes[1:], subplot_signals):
+    print(f"Plotting {signal_name} in its own subplot with color {color}")
+    ax.scatter(df_filtered[time_col], df_filtered[signal_name], color=color, label=signal_name)
+    ax.set_title(f"{signal_name}")
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel(signal_name)
+    ax.grid(True, which='both', linestyle='--', color='gray', alpha=0.7)  # Add grid to each subplot
+    ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1))
+    ax.tick_params(axis='x', which='both', labelbottom=True)  # Ensure x-axis numbers are displayed
+
+# Set the shared x-label for all plots
+#axes[-1].set_xlabel('Time (s)')
 
 
-# # Leer el archivo CSV
-# df = pd.read_csv(filename, encoding='latin1')
+# Apply tight layout
+plt.tight_layout()#(rect=[0, 0, 0.9, 1], h_pad=2.0)
+plt.show(block=True)
+"""
 
-
-# buttons
 
 """
         # ////////////////////////////////////////////////////////////////////////////////
