@@ -6,10 +6,12 @@
 
 # @title Graphic Maker
 import pandas as pd
+import numpy as np
 
 from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from matplotlib.legend import Legend
 
 import matplotlib
 print(matplotlib.get_backend())  # Confirm backend
@@ -103,7 +105,7 @@ def generate_widgets():
 
             # Checkbox for second Y-axis (third column)
             y_axis_var = tk.IntVar()
-            checkbox = tk.Checkbutton(app, text="Second Y-Axis", variable=y_axis_var)
+            checkbox = tk.Checkbutton(app, text="Second Y-axis", variable=y_axis_var)
             checkbox.grid(row=i+3, column=2, padx=5, pady=5, sticky='nsew')
             checkbox.var = y_axis_var
             y_checkboxes.append(checkbox)
@@ -142,12 +144,12 @@ def generate_widgets():
         numeric_fields = [  
             ("Time Min (s):", time_min, "Time Max (s):", time_max),
             ("Y-axis Min:", 0, "Y-axis Max:", 0),
-            ("Right Y-axis Min:", 0, "Right Y-axis Max:", 0),
+            ("Second Y-axis Min:", 0, "Second Y-axis Max:", 0),
             ("X Divisions:", 10, "Y Divisions:", 10),
         ]
         
         label_fields = [
-            ("Y-axis Label:", "Label1", "Right Y-axis Label:", "Label2")
+            ("Y-axis Label:", "Label1", "Second Y-axis Label:", "Label2")
         ]
         
         for i, (label1, val1, label2, val2) in enumerate(numeric_fields):
@@ -204,17 +206,28 @@ def clear_widgets():
 
 
 def validate_ymax_entries():
-    """Function to validate entries and show error if any value max values are nonzero"""
+    """Function to validate entries and show error if any max values are invalid."""
     try:
-        value_y1_max = float(float_entries[3].get())  # Convert the entry value to float
-        value_y2_max = float(float_entries[7].get()) 
-            
-        if value_y1_max == 0 or value_y2_max == 0:
-            messagebox.showerror("Error", "Entries 'Y1 Max' and 'Y2 Max' have to be greater than zero.")  # Display error message
-            return False    
+        # Convert the entry values to floats
+        value_y1_max = float(float_entries[3].get())
+        value_y2_max = float(float_entries[5].get())
+        
+        # Ensure Y1 max is greater than 0
+        if value_y1_max <= 0:
+            messagebox.showerror("Error", "Entry 'Y-axis Max' must be greater than zero.")
+            return False
+        
+        # Validate Right Y-axis Max only if the checkbox is checked
+        for checkbox in y_checkboxes:
+            if checkbox.var.get():  # If the checkbox for the second Y-axis is checked
+                if value_y2_max <= 0:
+                    messagebox.showerror("Error", "Entry 'Second Y-axis Max' must be greater than zero when enabled.")
+                    return False
+        
     except ValueError:
-        messagebox.showerror("Error", "Entries 'Y1 Max' and 'Y2 Max' contain an invalid value.")  # Display error for non-numeric
+        messagebox.showerror("Error", "Entries 'Y-axis Max' and 'Second Y-axis Max' contain invalid values.")  # Display error for non-numeric
         return False
+    
     return True
 
 
@@ -318,32 +331,125 @@ def plot_signals():
 
     if num_plots == 1:
         axes = [axes]
-
+        
     # Plot combined signals on the first axes
     if combined_signals:
         ax_combined = axes[0]
-        for signal_name, color in combined_signals:
-            ax_combined.scatter(df_filtered[time_col], df_filtered[signal_name], color=color, label=signal_name)
+        ax_right = None  # Initialize the second Y-axis
+    
+        for i, (signal_name, color) in enumerate(combined_signals):
+            if y_checkboxes[i].var.get():  # Check if the second Y-axis is enabled for this signal
+                if ax_right is None:  # Create the second Y-axis only once
+                    ax_right = ax_combined.twinx()
+                    ax_right.set_ylabel(float_entries[9].get())  # Set the label for the second Y-axis
+            
+                # Plot the signal on the second Y-axis
+                ax_right.scatter(df_filtered[time_col], df_filtered[signal_name], color=color, label=f"{signal_name}")
+            else:
+                # Plot the signal on the primary (left) Y-axis
+                ax_combined.scatter(df_filtered[time_col], df_filtered[signal_name], color=color, label=signal_name)
+    
         graph_title = title.get()
         ax_combined.set_title(graph_title)
         ax_combined.set_xlabel("Time (s)")
         ax_combined.set_ylabel(float_entries[8].get())  # Y-axis label for combined plot
-        ax_combined.legend(loc='upper left', bbox_to_anchor=(1.02, 1))
+        #ax_combined.legend(loc='upper left', bbox_to_anchor=(1.02, 1))
         ax_combined.grid(True, which='both', linestyle='--', color='gray', alpha=0.7)
         ax_combined.tick_params(axis='x', which='both', labelbottom=True)  # Ensure x-axis numbers are displayed
+        
+        x_div = int(float_entries[6].get()) + 1
+        y_div = int(float_entries[7].get()) + 1
+    
+        x_ticks = np.linspace(t_min, t_max, num=x_div)
+        ax_combined.set_xticks(x_ticks)
+        ax_combined.set_xlim([t_min, t_max])
+        
+        y_ticks = np.linspace(float(float_entries[2].get()), float(float_entries[3].get()), num=y_div)
+        ax_combined.set_yticks(y_ticks)
+        ax_combined.set_ylim([float(float_entries[2].get()), float(float_entries[3].get())])
+        
+        # Second y-axis
+        right_y_min = float(float_entries[4].get())
+        right_y_max = float(float_entries[5].get())
+        right_y_div = y_div #int(float_entries[7].get()) + 1
+        right_y_ticks = np.linspace(right_y_min, right_y_max, num=right_y_div)
 
+        if ax_right: 
+            ax_right.set_yticks(right_y_ticks)
+            ax_right.set_ylim(right_y_min, right_y_max)
+            
+        # legend
+        from matplotlib.lines import Line2D  # For creating proxy artists
+
+        # Obtain handles and labels from both axes
+        handles1, labels1 = ax_combined.get_legend_handles_labels()
+        if ax_right is not None:
+            handles2, labels2 = ax_right.get_legend_handles_labels()
+        else:
+            handles2, labels2 = [], []
+
+        # Create proxy artists for group titles
+        group_title_style = Line2D([0], [0], color='none', linestyle='none')  # Invisible marker
+
+        # Prepare custom legend entries
+        custom_labels = []
+        custom_handles = []
+        
+        # Add a blank entry for spacing
+        custom_labels.append("")  # Empty label
+        custom_handles.append(group_title_style)  # Invisible handle for spacing
+
+        # Group for the Y-axis
+        if handles1:
+            custom_labels.append("Y - AXIS SIGNALS:")
+            custom_handles.append(group_title_style)  # Placeholder for the group title
+            custom_labels.extend(labels1)
+            custom_handles.extend(handles1)
+            
+        # Add a blank entry for spacing
+        custom_labels.append("")  # Empty label
+        custom_handles.append(group_title_style)  # Invisible handle for spacing
+
+        # Group for the Second Y-axis
+        if handles2:
+            custom_labels.append("SECOND Y - AXIS SIGNALS:")
+            custom_handles.append(group_title_style)  # Placeholder for the group title
+            custom_labels.extend(labels2)
+            custom_handles.extend(handles2)
+
+        # Create the legend
+        legend = Legend(
+            fig, custom_handles, custom_labels,
+            loc='upper right',  # Place it to the right of the figure
+            #bbox_to_anchor=(0.99, 0.5),  # Adjust for desired placement
+            borderaxespad=0,
+            frameon=False,
+            handletextpad=1,
+            fontsize=10,
+            title="LEGEND",  
+            )
+        legend._legend_box.align = "left" 
+        
+        # Add space by adding a newline before the title
+        legend.set_title(f"\nLEGEND") 
+
+        # Add the custom legend to the figure
+        ax_combined.add_artist(legend)
+
+        # Adjust layout to leave space for the legend
+        fig.tight_layout(rect=[0, 0.03, 0.65, 1])  # Adjust right-side spacing
+                
+                
     # Plot each signal in its own subplot
     for ax, (signal_name, color) in zip(axes[1:], subplot_signals):
         ax.scatter(df_filtered[time_col], df_filtered[signal_name], color=color, label=signal_name)
-        ax.set_title(f"{signal_name}")
+        #ax.set_title(f"{signal_name}")
         ax.set_xlabel("Time (s)")
         ax.set_ylabel(signal_name)
-        ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1))
         ax.grid(True, which='both', linestyle='--', color='gray', alpha=0.7)
-        ax.tick_params(axis='x', which='both', labelbottom=True)  # Ensure x-axis numbers are displayed
-
-    # Set x-label on the last subplot
-    #axes[-1].set_xlabel("Time (s)")
+        ax.tick_params(axis='x', which='both', labelbottom=True) 
+        #ax.legend(loc='center right', bbox_to_anchor=(1.1, 0.5))
+        
 
     # Add the figure to the Tkinter canvas
     canvas_widget = FigureCanvasTkAgg(fig, master=scrollable_frame)
