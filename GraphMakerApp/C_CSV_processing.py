@@ -8,18 +8,21 @@
 import pandas as pd
 import numpy as np
 
-from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
-from matplotlib.legend import Legend
-
 import matplotlib
 print(matplotlib.get_backend())  # Confirm backend
 matplotlib.use('TkAgg')  # Change to an appropriate one for your OS
 
 import matplotlib.pyplot as plt
 
-import random
+from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+from matplotlib.legend import Legend
+import matplotlib.colors as mcolors
+
+#import random
+
+#from textwrap import wrap
 
 # package to handle GUI application for file upload
 import tkinter as tk
@@ -42,6 +45,9 @@ plot_checkboxes = []
 subplot_checkboxes = []
 float_entries = []
 title = None
+
+# Initialize the global variable to track the text object
+analysis_text_obj = None
 
 # file upload button
 def upload_file():
@@ -233,6 +239,7 @@ def validate_ymax_entries():
 
 def generate_unique_colors(num_colors):
     """Function to define unique colors for plotting"""
+    """
     random.seed(5)
     colors = set()
     while len(colors) < num_colors:
@@ -240,6 +247,23 @@ def generate_unique_colors(num_colors):
         color = "#{:06x}".format(random.randint(0, 0xFFFFFF))
         colors.add(color)  
     return list(colors)
+    """
+    """Generate a list of visually distinct colors."""
+    if num_colors <= 12:
+        # Use a predefined, high-contrast palette for smaller numbers
+        base_colors = [
+            "#e6194b", "#3cb44b", "#4363d8", "#f58231",
+            "#911eb4", "#46f0f0", "#f032e6", "#808080",
+            "#008080", "#e6beff", "#9a6324", "#808000",  
+            "#fffac8", "#ffd8b1", "#000075", "#800000"
+        ]
+        return base_colors[:num_colors]
+    else:
+        # For larger numbers, generate evenly spaced colors in HSL space
+        hues = np.linspace(0, 1, num_colors, endpoint=False)
+        colors = [mcolors.hsv_to_rgb((hue, 0.7, 0.8)) for hue in hues]
+        hex_colors = [mcolors.rgb2hex(color) for color in colors]
+        return hex_colors
 
 unique_colors = generate_unique_colors(num_signals)
 
@@ -353,7 +377,6 @@ def plot_signals():
         ax_combined.set_title(graph_title)
         ax_combined.set_xlabel("Time (s)")
         ax_combined.set_ylabel(float_entries[8].get())  # Y-axis label for combined plot
-        #ax_combined.legend(loc='upper left', bbox_to_anchor=(1.02, 1))
         ax_combined.grid(True, which='both', linestyle='--', color='gray', alpha=0.7)
         ax_combined.tick_params(axis='x', which='both', labelbottom=True)  # Ensure x-axis numbers are displayed
         
@@ -437,7 +460,7 @@ def plot_signals():
         ax_combined.add_artist(legend)
 
         # Adjust layout to leave space for the legend
-        fig.tight_layout(rect=[0, 0.03, 0.65, 1])  # Adjust right-side spacing
+        fig.tight_layout(rect=[0, 0.2, 0.65, 1])  # Adjust right-side spacing
                 
                 
     # Plot each signal in its own subplot
@@ -448,22 +471,97 @@ def plot_signals():
         ax.set_ylabel(signal_name)
         ax.grid(True, which='both', linestyle='--', color='gray', alpha=0.7)
         ax.tick_params(axis='x', which='both', labelbottom=True) 
-        #ax.legend(loc='center right', bbox_to_anchor=(1.1, 0.5))
         
-
+    
     # Add the figure to the Tkinter canvas
     canvas_widget = FigureCanvasTkAgg(fig, master=scrollable_frame)
     canvas_widget.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-    canvas_widget.draw()
-    
+
     # Add the Matplotlib navigation toolbar
-    toolbar_frame = tk.Frame(plot_window)
-    toolbar_frame.pack(side=tk.BOTTOM, fill=tk.X)
+    toolbar_frame = tk.Frame(scrollable_frame)  # Place toolbar inside the scrollable area
+    toolbar_frame.pack(fill=tk.X, padx=10, pady=5)
     toolbar = NavigationToolbar2Tk(canvas_widget, toolbar_frame)
     toolbar.update()
 
+    # Add a Text widget for user input below the plots, also inside the scrollable frame
+    analysis_text = tk.Text(scrollable_frame, height=5, width=100)
+    analysis_text.pack(side=tk.BOTTOM, padx=10, pady=10)
+
+    def custom_save(*args, **kwargs):
+        """Custom save function to include analysis text in the saved figure."""
+        global analysis_text_obj  # Keep a reference to the text object
+        
+        analysis = analysis_text.get("1.0", "end-1c")  # Get the user input
+    
+        # Remove the old text object if it exists
+        if analysis_text_obj is not None:
+            try:
+                analysis_text_obj.remove()  # Remove the text object from the figure
+            except Exception as e:
+                print(f"Error while removing old text: {e}")
+            finally:
+                analysis_text_obj = None
+            
+        if analysis.strip():  # If there is any text
+            # Measure the text length and calculate the required space
+            text_length = len(analysis)
+            base_space = 0.3  # Base space for the text
+            extra_space = 0.015 * (text_length // 50)  # Add extra space for every 50 characters
+            reserved_space = base_space + extra_space
+        
+            # Limit how much space the text can take
+            if reserved_space > 0.4:
+                reserved_space = 0.4
+
+            # Reserve space below the figure for the analysis text
+            fig.subplots_adjust(bottom=reserved_space)
+
+            # Add the text to the figure as a footer
+            analysis_text_obj = fig.text(
+                0.1, 0.03,  # Adjust the position dynamically
+                f"Test report comments:\n {analysis}",  # Single line of text
+                ha="left", fontsize=10, color="black"
+                )
+    
+        original_save(*args, **kwargs)  # Call the original save function
+
+    original_save = canvas_widget.print_figure  # Keep a reference to the original save function
+    canvas_widget.print_figure = custom_save  # Override with the custom save function
+
+    # Finalize
+    canvas_widget.draw()
+
     plot_window.mainloop()
     
+    
+"""
+# Add the analysis input space below the plots
+def update_analysis():
+    analysis = analysis_text.get("1.0", "end-1c")  # Get the user input
+    print(f"Analysis: {analysis}")
+    # You can save the analysis with the plot if needed
+    fig.savefig("plot_with_analysis.png")  # Save the plot with the analysis
+
+# Create a Text widget for user input below the plots
+analysis_text = tk.Text(plot_window, height=5, width=100)
+analysis_text.pack(side=tk.BOTTOM, padx=10, pady=10)
+
+# Create a button to submit analysis
+submit_button = tk.Button(plot_window, text="Submit Analysis", command=update_analysis)
+submit_button.pack(side=tk.BOTTOM, pady=10)
+        
+
+# Add the figure to the Tkinter canvas
+canvas_widget = FigureCanvasTkAgg(fig, master=scrollable_frame)
+canvas_widget.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+canvas_widget.draw()
+
+# Add the Matplotlib navigation toolbar
+toolbar_frame = tk.Frame(plot_window)
+toolbar_frame.pack(side=tk.BOTTOM, fill=tk.X)
+toolbar = NavigationToolbar2Tk(canvas_widget, toolbar_frame)
+toolbar.update()
+"""
     
     
 #//////////////////////////////////////////////////////////////////////////////////////////////////
