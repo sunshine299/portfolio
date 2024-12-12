@@ -12,9 +12,14 @@ Here, you may find a collection of some of my projects I have worked on, showcas
 ## Projects Overview
 
 ### 'Graph Maker' App
-- Data acquisaition with Pandas
-- Building app 'Graph Maker' for Windows/MacOS
-- Data Visualization 
+- **Description**: Developed of an application for streamlined **data acquisition** and **signal visualization**. The app features an easy-to-use graphical interface and is capable of processing and visualizing complex signal data efficiently. Users can interact with the app to explore trends and patterns within their data.
+
+- **Skills/Technologies Used**:
+  - **Graphical Interface**: Built using Python’s **Tkinter** library, compatible with both **Windows** and **MacOS**
+  - **Data Processing**: Utilizes **Pandas** and **NumPy** for efficient data handling and signal analysis
+  - **Data Visualization**: Displays data trends and patterns with **Matplotlib**
+
+- **Folder**: portfolio/GraphMaker/
 
 ### LIN communication data cleaning
 
