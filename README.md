@@ -1,7 +1,7 @@
 # My Portfolio
 
 Welcome! 
-Here, you may find a collection of some of my projects I have worked on, showcasing my skills in various areas (Python, Data Analysis, Data Cleaning, Machine Learning). 
+Here, you may find a collection of some of my projects I have worked on, showcasing my skills in various areas (Python, Data Analysis, Data Cleaning, Machine Learning, User Interface Development, Software Development). 
 
 ## Table of Contents
 
